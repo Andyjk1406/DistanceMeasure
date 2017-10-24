@@ -16,7 +16,7 @@
 #include <vtkBooleanOperationPolyDataFilter.h>
 
 float standard_deviation(vtkSmartPointer<vtkDistancePolyDataFilter> dist);
-
+float test;
 //Test comment and a new bit
 
 std::string testFilename;
