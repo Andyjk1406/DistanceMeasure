@@ -18,6 +18,8 @@
 float standard_deviation(vtkSmartPointer<vtkDistancePolyDataFilter> dist);
 float test;
 float finalTestGIT;
+
+//Help!
 //Test comment and a new bit
 
 std::string testFilename;
