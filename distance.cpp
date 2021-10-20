@@ -1,3 +1,6 @@
+// October 2021 I modified this for Rachael Jablonskis facial scans PhD, by adding the fraction_beyond function
+// and removing the worst_percentage part for now. I also modified the search distance from 2mm to 0.8mm for initial GICP
+
 #include <vtkVersion.h>
 #include <vtkSmartPointer.h>
  
@@ -19,7 +22,8 @@
 #include <vtkTransformPolyDataFilter.h>
 
 #include <pcl/io/pcd_io.h>
-#include <pcl/io/vtk_lib_io.h>
+#include <pcl/io/vtk_io.h>
+#include <pcl/io/ply_io.h>
 #include <pcl/registration/gicp.h>
 
 typedef pcl::PointNormal PointT;
@@ -27,6 +31,7 @@ typedef pcl::PointCloud<PointT>  PointCloudT;
 
 float standard_deviation(vtkSmartPointer<vtkDistancePolyDataFilter> dist);
 void getWorstFraction(vtkSmartPointer<vtkDistancePolyDataFilter> dist, float fraction);
+void getFractionBeyond(vtkSmartPointer<vtkDistancePolyDataFilter> dist, float fraction);
 
 bool saveALNFile(std::string filename, std::vector<std::string>& v_meshNames, std::vector<Eigen::Matrix4f> v_mats);
 
@@ -78,16 +83,25 @@ int main(int argc, char* argv[])
     }
   else
     {
-	  cout << "Usage : ...exe path/to/dir/ source.ply target.ply target_cropped.ply fraction";
+	  cout << "Usage : ...exe path/to/dir/ source.ply target.ply target_cropped.ply distance_threshold (will save the fraction of the mesh that was beyond this distance)";
 	  return 0;
   }
 
   // Create PCL clouds for alignment (source and target)
+  pcl::PolygonMesh source_mesh;
+  pcl::io::loadPLYFile(base_dir + src_filename, source_mesh);
+
+  pcl::PolygonMesh target_mesh;
+  pcl::io::loadPLYFile(base_dir+tgt_filename, target_mesh);
+
+  auto src2 = source_mesh.cloud;
+  auto tgt2 = target_mesh.cloud;
+
   PointCloudT::Ptr source_cloud(new PointCloudT);
-  pcl::io::vtkPolyDataToPointCloud(source, *source_cloud);
+  pcl::fromPCLPointCloud2(src2, *source_cloud);
  
   PointCloudT::Ptr target_cloud(new PointCloudT);
-  pcl::io::vtkPolyDataToPointCloud(target, *target_cloud);
+  pcl::fromPCLPointCloud2(tgt2, *target_cloud);
 
   // Align source to target using GICP
   Eigen::Matrix4f icpMatrix;
@@ -100,7 +114,7 @@ int main(int argc, char* argv[])
   icp.setInputSource(source_cloud);
   icp.setInputTarget(target_cloud);
 
-  icp.setMaxCorrespondenceDistance(2); // Start with 2mm search zone
+  icp.setMaxCorrespondenceDistance(0.8); // Start with 2mm search zone
   icp.align(*icp_alignedCloud);
   icpMatrix = icp.getFinalTransformation();
 
@@ -156,7 +170,10 @@ int main(int argc, char* argv[])
   float sd = standard_deviation(distanceFilter);
 
   // Get the worst xx% and save the data
-  getWorstFraction(distanceFilter, fraction);
+  //getWorstFraction(distanceFilter, fraction);
+
+  // ....or save the fraction of the mesh beyond a certain distance
+  getFractionBeyond(distanceFilter, fraction);
 
   // Save a meshlab ALN file--------------------------------------------------------------------------------------------
   std::string aln_filename = base_dir + src_filename.erase(src_filename.length() - 4) + "_" + tgt_filename.erase(tgt_filename.length() - 4)+".aln";
@@ -222,11 +239,39 @@ void getWorstFraction(vtkSmartPointer<vtkDistancePolyDataFilter> dist, float fra
 
 	int nDistsToSave =(int) ((float)nValues * fraction);
 
-	ofstream out("WorstPercentage.txt", ios::app);
+	std::ofstream out("WorstPercentage.txt", ios::app);
 	out << src_filename << " " << tgt_filename <<" ";
 
 	for (int i = 0; i < nDistsToSave; i++)
 		out << vDistances[i] << " ";
+
+	out << std::endl;
+
+	out.close();
+
+}
+
+void getFractionBeyond(vtkSmartPointer<vtkDistancePolyDataFilter> dist, float fraction)
+{
+
+	// Calculate as save the fraction of the mesh beyond the threshold error
+
+	vtkIdType nValues;
+	nValues = dist->GetOutput()->GetPointData()->GetScalars()->GetSize();
+	vtkIdType fraction_count = 0;
+
+	for (vtkIdType i = 0; i < nValues; ++i)
+	{
+		double val = dist->GetOutput()->GetPointData()->GetScalars()->GetTuple1(i);
+		if (abs(val) > fraction) fraction_count++;
+	}
+
+	double fraction_beyond = (double)fraction_count / (double)nValues;
+	
+	std::ofstream out("FractionBeyond.txt", ios::app);
+	out << src_filename << " " << tgt_filename << " ";
+
+	out << fraction_beyond << " ";
 
 	out << std::endl;
 
@@ -279,7 +324,7 @@ float standard_deviation(vtkSmartPointer<vtkDistancePolyDataFilter> dist)
 	sum_deviationNeg = sqrt(sum_deviationNeg / negCtr);
 	sum_deviationPos = sqrt(sum_deviationPos / posCtr);
 
-	ofstream out;
+	std::ofstream out;
 	if (!fileExists("DataResults.txt"))
 	{
 		out.open("DataResults.txt", ios::app);
@@ -318,7 +363,7 @@ float standard_deviation(vtkSmartPointer<vtkDistancePolyDataFilter> dist)
 
 bool fileExists(const char *fileName)
 {
-	ifstream infile(fileName);
+	std::ifstream infile(fileName);
 	return infile.good();
 }
 
@@ -326,7 +371,7 @@ bool saveALNFile(std::string filename, std::vector<std::string>& v_meshNames, st
 
 	Eigen::Matrix4f trans_mat;
 
-	ofstream myfile;  // The write stream
+	std::ofstream myfile;  // The write stream
 	myfile.open(filename, std::ios_base::out);  // Open the file
 
 	if (!myfile) { return false; } // File opening failed 
